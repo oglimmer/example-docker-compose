@@ -1,0 +1,188 @@
+version: '3'
+
+services:
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    command:
+      - "--log.level=INFO"
+      - "--api.insecure=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesResolvers.letsencrypt.acme.email=root@example.com"
+      - "--certificatesResolvers.letsencrypt.acme.httpChallenge=true"
+      - "--certificatesResolvers.letsencrypt.acme.httpChallenge.entryPoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--metrics.prometheus=true"
+      - "--metrics.prometheus.manualrouting=false"
+      - "--metrics.prometheus.addEntryPointsLabels=true"
+      - "--metrics.prometheus.addrouterslabels=true"
+      - "--metrics.prometheus.addServicesLabels=true"
+      - "--accesslog=true"
+      - "--accesslog.filepath=/opt/access-logs/access.json"
+      - "--accesslog.format=json"
+      - "--accesslog.fields.defaultmode=keep"
+      - "--accesslog.fields.headers.defaultmode=keep"
+      - "--accesslog.fields.headers.names.User-Agent=keep"
+      - "--accesslog.fields.headers.names.Referer=keep"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - ./data/letsencrypt:/letsencrypt
+      - ./data/access-logs:/opt/access-logs
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.example.com`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.tls=true"
+      - "traefik.http.services.justAdummyService.loadbalancer.server.port=1337"
+      - "traefik.http.routers.traefik.middlewares=dashboardauth"
+      - "traefik.http.middlewares.dashboardauth.basicauth.users=admin:$$2y$$10$$RLhHIWjA9suFvANmHm3ja.jwqwj7xSKqzwUdrq77pGCDH6PKdehUC"
+      - "traefik.http.routers.http_catchall.rule=HostRegexp(`{any:.+}`)"
+      - "traefik.http.routers.http_catchall.entrypoints=web"
+      - "traefik.http.routers.http_catchall.middlewares=https_redirect"
+      - "traefik.http.middlewares.https_redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.https_redirect.redirectscheme.permanent=true"
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+      - "traefik.http.routers.portainer.rule=Host(`portainer.example.com`)" # portainer is not working with basic auth
+      - "traefik.http.routers.portainer.priority=10"
+      - "traefik.http.routers.portainer.entrypoints=websecure"
+      - "traefik.http.routers.portainer.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.portainer-login.rule=Host(`portainer.example.com`) && (Path(`/api/auth`) || Path(`/`))" # so at least we secure the login
+      - "traefik.http.routers.portainer-login.priority=25"
+      - "traefik.http.routers.portainer-login.middlewares=portainer"
+      - "traefik.http.routers.portainer-login.entrypoints=websecure"
+      - "traefik.http.routers.portainer-login.tls.certresolver=letsencrypt"
+      - "traefik.http.middlewares.portainer.basicauth.users=admin:$$2y$$10$$RLhHIWjA9suFvANmHm3ja.jwqwj7xSKqzwUdrq77pGCDH6PKdehUC"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/portaefik:/data
+    restart: unless-stopped
+
+  blog:
+    image: bretfisher/jekyll-serve:latest
+    container_name: blog
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.blog.rule=Host(`blog.example.com`)"
+      - "traefik.http.routers.blog.entrypoints=websecure"
+      - "traefik.http.routers.blog.tls.certresolver=letsencrypt"
+    volumes:
+      - ./serve/blog:/site
+
+  web:
+    image: nginx:latest
+    container_name: web
+    volumes:
+      - ./serve/web:/usr/share/nginx/html
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.web.rule=Host(`web.example.com`)"
+      - "traefik.http.routers.web.entrypoints=web,websecure" # we want to serve both http and https
+      - "traefik.http.routers.web.tls.certresolver=letsencrypt"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+    entrypoint:
+      - sh
+      - -euc
+      - |
+        mkdir -p /etc/grafana/provisioning/datasources
+        cat <<EOF > /etc/grafana/provisioning/datasources/ds.yaml
+        apiVersion: 1
+        datasources:
+        - name: Loki
+          type: loki
+          access: proxy
+          orgId: 1
+          url: http://loki:3100
+          basicAuth: false
+          isDefault: false
+          version: 1
+          editable: false
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          orgId: 1
+          url: http://prometheus:9090
+          basicAuth: false
+          isDefault: true
+          version: 1
+          editable: false
+        EOF
+        /run.sh
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.example.com`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.example.com`)"
+      - "traefik.http.routers.prometheus.entrypoints=websecure"
+      - "traefik.http.routers.prometheus.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.prometheus.middlewares=prometheus"
+      - "traefik.http.middlewares.prometheus.basicauth.users=admin:$$2y$$10$$RLhHIWjA9suFvANmHm3ja.jwqwj7xSKqzwUdrq77pGCDH6PKdehUC"
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki    
+    command: -config.file=/etc/loki/local-config.yaml
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.loki.rule=Host(`loki.example.com`)" # this should be secured with basic auth
+      - "traefik.http.routers.loki.entrypoints=websecure"
+      - "traefik.http.routers.loki.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.loki.middlewares=loki"
+      - "traefik.http.middlewares.loki.basicauth.users=admin:$$2y$$10$$RLhHIWjA9suFvANmHm3ja.jwqwj7xSKqzwUdrq77pGCDH6PKdehUC"
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail    
+    volumes:
+      - "./data/access-logs:/var/log"
+      - "./promtail-config.yml:/etc/promtail/promtail.yaml"
+      - "./data/promtail-data:/tmp/positions"
+    command: -config.file=/etc/promtail/promtail.yaml
+    restart: unless-stopped
+
+  logrotate:
+     build: logrotate
+     container_name: logrotate    
+     restart: unless-stopped
+     volumes:
+       - "/var/run/docker.sock:/var/run/docker.sock"
+       - "./data/access-logs:/var/log"
