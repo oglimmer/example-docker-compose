@@ -8,6 +8,46 @@ You have to add these domains to your /etc/hosts
 127.0.0.1 prometheus.example.com blog.example.com web.example.com traefik.example.com portainer.example.com grafana.example.com loki.example.com
 ```
 
+# Content
+
+## Traefik
+
+We have traefik to handle
+* TLS and the certificate renewals
+* central http/https entrypoint and routing to the different containers
+
+## Portainer
+
+Can deploy additional containers, outside of docker-compose.yml
+
+## Grafana
+
+Displays data from Prometheus and Loki
+
+## Loki
+
+Event level database
+
+## Prometheus
+
+Time series database for metrics
+
+## Promtail
+
+Moves the access logs from Traefik into Loki / Grafana
+
+## Logrotate
+
+Rotates the access log file in Traefik once a day.
+
+## Blog
+
+Example blog.
+
+## Web
+
+Example web project.
+
 # user/pass
 
 All users password combinations are admin/admin
