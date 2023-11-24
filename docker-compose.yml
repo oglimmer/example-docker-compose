@@ -162,7 +162,7 @@ services:
     command: -config.file=/etc/loki/local-config.yaml
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.loki.rule=Host(`loki.example.com`)" # this should be secured with basic auth
+      - "traefik.http.routers.loki.rule=Host(`loki.example.com`)"
       - "traefik.http.routers.loki.entrypoints=websecure"
       - "traefik.http.routers.loki.tls.certresolver=letsencrypt"
       - "traefik.http.routers.loki.middlewares=loki"
