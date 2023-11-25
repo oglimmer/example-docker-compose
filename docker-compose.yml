@@ -180,7 +180,7 @@ services:
     restart: unless-stopped
 
   logrotate:
-     image: oglimmer/logrotate-container-traefik
+     image: oglimmer/logrotate-container-traefik:master
      container_name: logrotate    
      restart: unless-stopped
      environment:
