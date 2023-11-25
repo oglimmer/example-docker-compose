@@ -180,9 +180,12 @@ services:
     restart: unless-stopped
 
   logrotate:
-     build: logrotate
+     image: oglimmer/logrotate-container-traefik
      container_name: logrotate    
      restart: unless-stopped
+     environment:
+      - LOGPATH=/var/log/access.json
+      - IMAGENAME=traefik
      volumes:
-       - "/var/run/docker.sock:/var/run/docker.sock"
-       - "./data/access-logs:/var/log"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./data/access-logs:/var/log"
